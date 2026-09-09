@@ -25,9 +25,11 @@ import { downloadRegistrationCardPdf } from '../utils/pdfGenerator';
 import { 
   exportToCSV, 
   syncToGoogleServices, 
+  syncMultipleRegistrationsToGoogle,
   getGoogleSyncConfig, 
   clearAllRegistrations,
-  deleteRegistrationRecord 
+  deleteRegistrationRecord,
+  saveRegistration
 } from '../utils/storage';
 import { SystemSettings } from './SystemSettings';
 
@@ -60,8 +62,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [recordToDelete, setRecordToDelete] = useState<RegistrationRecord | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isBulkSyncing, setIsBulkSyncing] = useState(false);
+  const [bulkSyncProgress, setBulkSyncProgress] = useState<{ current: number; total: number; student: string } | null>(null);
 
   const googleConfig = getGoogleSyncConfig();
+  const targetWebhookUrl = (dashboardConfig?.googleWebAppUrl || googleConfig.webAppUrl || '').trim();
+  const spreadsheetLink = dashboardConfig?.googleSpreadsheetUrl || googleConfig.spreadsheetUrl;
 
   // Statistics by 4 Study Programs
   const total = records.length;
@@ -85,13 +91,59 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleManualSync = async (record: RegistrationRecord) => {
     setSyncingId(record.id);
     try {
-      const res = await syncToGoogleServices(record);
+      const res = await syncToGoogleServices(record, targetWebhookUrl);
+      if (res.success) {
+        record.syncedToGoogle = {
+          status: 'success',
+          driveFolderUrl: res.driveFolderUrl,
+          syncedAt: new Date().toISOString()
+        };
+        saveRegistration(record);
+      }
       alert(res.message);
       onRefresh();
     } catch (e: any) {
       alert('Gagal menyinkronkan: ' + e.message);
     } finally {
       setSyncingId(null);
+    }
+  };
+
+  const handleBulkSyncAll = async () => {
+    if (records.length === 0) {
+      alert('Belum ada data pendaftar untuk disinkronkan.');
+      return;
+    }
+
+    if (!targetWebhookUrl || !targetWebhookUrl.startsWith('http')) {
+      alert('Harap masukkan URL Google Apps Script Web App terlebih dahulu pada panel integrasi.');
+      onOpenSyncModal();
+      return;
+    }
+
+    if (!window.confirm(`Kirim & sinkronkan seluruh ${records.length} data pendaftar ke 1 Google Spreadsheet?`)) {
+      return;
+    }
+
+    setIsBulkSyncing(true);
+    setBulkSyncProgress({ current: 0, total: records.length, student: 'Menyiapkan sinkronisasi...' });
+
+    try {
+      const { successCount, failCount } = await syncMultipleRegistrationsToGoogle(
+        records,
+        targetWebhookUrl,
+        (current, total, student) => {
+          setBulkSyncProgress({ current, total, student });
+        }
+      );
+
+      alert(`Sinkronisasi selesai!\n- Berhasil: ${successCount} pendaftar\n- Gagal/Perlu Cek: ${failCount} pendaftar\nData telah dicatat ke 1 Google Spreadsheet.`);
+      onRefresh();
+    } catch (err: any) {
+      alert('Kendala sinkronisasi: ' + (err?.message || 'Koneksi terputus'));
+    } finally {
+      setIsBulkSyncing(false);
+      setBulkSyncProgress(null);
     }
   };
 
@@ -131,9 +183,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {googleConfig.spreadsheetUrl && googleConfig.spreadsheetUrl.startsWith('http') && (
+          {spreadsheetLink && spreadsheetLink.startsWith('http') && (
             <a
-              href={googleConfig.spreadsheetUrl}
+              href={spreadsheetLink}
               target="_blank"
               rel="noreferrer"
               id="btn-open-google-sheet"
@@ -146,13 +198,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </a>
           )}
 
+          {records.length > 0 && (
+            <button
+              type="button"
+              id="btn-bulk-sync-google"
+              disabled={isBulkSyncing}
+              onClick={handleBulkSyncAll}
+              className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shadow-sm ${
+                isBulkSyncing 
+                  ? 'bg-emerald-200 text-emerald-800 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              }`}
+              title="Kirim dan sinkronkan semua pendaftar ke 1 Google Spreadsheet"
+            >
+              <RefreshCw className={`w-4 h-4 ${isBulkSyncing ? 'animate-spin' : ''}`} />
+              <span>{isBulkSyncing ? 'Menyinkronkan...' : `Sinkronkan Semua (${records.length}) ke Spreadsheet`}</span>
+            </button>
+          )}
+
+          {!targetWebhookUrl && (
+            <button
+              type="button"
+              id="btn-connect-google-sheet"
+              onClick={onOpenSyncModal}
+              className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-semibold transition-colors"
+              title="Hubungkan Webhook Google Apps Script & 1 Spreadsheet"
+            >
+              <AlertCircle className="w-4 h-4 text-amber-600" />
+              <span>Hubungkan 1 Spreadsheet</span>
+            </button>
+          )}
+
           <button
             type="button"
             id="btn-export-csv"
             onClick={() => exportToCSV(records)}
-            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold transition-colors shadow-sm"
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors border border-slate-300 shadow-xs"
           >
-            <FileSpreadsheet className="w-4 h-4" />
+            <FileSpreadsheet className="w-4 h-4 text-slate-600" />
             <span>Unduh Rekap (.CSV)</span>
           </button>
 
@@ -181,6 +264,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Sync Status Banner */}
+      {bulkSyncProgress && (
+        <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 text-emerald-950 flex items-center space-x-3 shadow-xs animate-pulse">
+          <RefreshCw className="w-5 h-5 text-emerald-600 animate-spin flex-shrink-0" />
+          <div className="text-xs sm:text-sm">
+            <span className="font-bold">
+              Menyinkronkan ke Google Spreadsheet: {bulkSyncProgress.current} dari {bulkSyncProgress.total} data...
+            </span>
+            <p className="text-xs text-emerald-700 mt-0.5">
+              Sedang memproses: <span className="font-semibold">{bulkSyncProgress.student}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Webhook Warning Banner if not configured */}
+      {!targetWebhookUrl && activeTab === 'data' && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start space-x-2.5">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-xs sm:text-sm">
+                URL Google Apps Script Web App Belum Terpasang
+              </p>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Setiap pendaftaran baru otomatis tersimpan di Cloud Database. Untuk mengaktifkan pencatatan otomatis ke <strong>1 Google Spreadsheet & Google Drive</strong>, pasang Webhook sekarang (hanya 1 menit).
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSyncModal}
+            className="flex-shrink-0 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs"
+          >
+            Pasang Integrasi Spreadsheet
+          </button>
+        </div>
+      )}
 
       {/* Tabs Switcher: Data Pendaftar vs Pengaturan Sistem */}
       <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">

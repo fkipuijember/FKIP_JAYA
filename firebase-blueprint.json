@@ -25,6 +25,9 @@
         "nidnPanitiaPpl": { "type": "string" },
         "jabatanPanitiaPpl": { "type": "string" },
         "ttdPanitiaUrl": { "type": "string" },
+        "googleWebAppUrl": { "type": "string" },
+        "googleSpreadsheetUrl": { "type": "string" },
+        "autoSyncGoogle": { "type": "boolean" },
         "updatedAt": { "type": "string" }
       }
     },

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Database, 
   X, 
@@ -30,6 +30,14 @@ export const GoogleSyncModal: React.FC<GoogleSyncModalProps> = ({
   const [config, setConfig] = useState(getGoogleSyncConfig());
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [testMessage, setTestMessage] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setConfig(getGoogleSyncConfig());
+      setTestStatus('idle');
+      setTestMessage('');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

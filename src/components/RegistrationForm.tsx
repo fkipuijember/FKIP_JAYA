@@ -170,12 +170,14 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
 
       setSubmitStep('Menyimpan data dan menyinkronkan ke Google Drive & Spreadsheet...');
 
-      // Save locally first
+      // Save locally & Firestore first
       saveRegistration(newRecord);
 
-      // Trigger sync to Google Apps Script / Drive & Sheets
+      // Trigger automatic sync to Google Apps Script / Drive & 1 Spreadsheet
       const syncConfig = getGoogleSyncConfig();
-      const syncResult = await syncToGoogleServices(newRecord, syncConfig.webAppUrl);
+      const targetUrl = (dashboardConfig?.googleWebAppUrl || syncConfig.webAppUrl || '').trim();
+      
+      const syncResult = await syncToGoogleServices(newRecord, targetUrl);
 
       if (syncResult.success) {
         newRecord.syncedToGoogle = {
@@ -183,6 +185,8 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
           driveFolderUrl: syncResult.driveFolderUrl,
           syncedAt: new Date().toISOString()
         };
+        // Update the record with successful sync status
+        saveRegistration(newRecord);
       }
 
       await new Promise((r) => setTimeout(r, 600));

@@ -80,4 +80,8 @@ export interface DashboardConfig {
   nidnPanitiaPpl?: string;
   jabatanPanitiaPpl?: string;
   ttdPanitiaUrl?: string;
+  // Google Spreadsheet & Drive Integration
+  googleWebAppUrl?: string;
+  googleSpreadsheetUrl?: string;
+  autoSyncGoogle?: boolean;
 }

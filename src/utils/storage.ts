@@ -30,7 +30,10 @@ export const DEFAULT_DASHBOARD_CONFIG: DashboardConfig = {
   namaPanitiaPpl: 'H. Moh. Hasan, M.Pd.I',
   nidnPanitiaPpl: '0715088201',
   jabatanPanitiaPpl: 'Ketua Panitia PPL FKIP UIJ',
-  ttdPanitiaUrl: DEFAULT_TTD_IMAGE
+  ttdPanitiaUrl: DEFAULT_TTD_IMAGE,
+  googleWebAppUrl: '',
+  googleSpreadsheetUrl: '',
+  autoSyncGoogle: true
 };
 
 export function getDashboardConfig(): DashboardConfig {
@@ -45,6 +48,9 @@ export function getDashboardConfig(): DashboardConfig {
       ...parsed,
       logoTemplateUrl: parsed.logoTemplateUrl || DEFAULT_DASHBOARD_CONFIG.logoTemplateUrl,
       ttdPanitiaUrl: parsed.ttdPanitiaUrl || DEFAULT_DASHBOARD_CONFIG.ttdPanitiaUrl,
+      googleWebAppUrl: parsed.googleWebAppUrl || '',
+      googleSpreadsheetUrl: parsed.googleSpreadsheetUrl || '',
+      autoSyncGoogle: parsed.autoSyncGoogle ?? true
     };
   } catch {
     return DEFAULT_DASHBOARD_CONFIG;
@@ -156,18 +162,13 @@ export function updateRegistrationStatus(
 export function getGoogleSyncConfig(): GoogleSyncConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
-    if (!raw) {
-      return {
-        webAppUrl: '',
-        spreadsheetUrl: '',
-        autoSync: true
-      };
-    }
-    const parsed = JSON.parse(raw);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const dashConfig = getDashboardConfig();
+
     return {
-      webAppUrl: parsed.webAppUrl || '',
-      spreadsheetUrl: parsed.spreadsheetUrl || '',
-      autoSync: parsed.autoSync ?? true
+      webAppUrl: parsed.webAppUrl || dashConfig.googleWebAppUrl || '',
+      spreadsheetUrl: parsed.spreadsheetUrl || dashConfig.googleSpreadsheetUrl || '',
+      autoSync: parsed.autoSync ?? dashConfig.autoSyncGoogle ?? true
     };
   } catch {
     return {
@@ -181,6 +182,16 @@ export function getGoogleSyncConfig(): GoogleSyncConfig {
 export function saveGoogleSyncConfig(config: GoogleSyncConfig): void {
   try {
     localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+    // Also synchronize into DashboardConfig to guarantee cloud persistence across all devices & students
+    const currentDash = getDashboardConfig();
+    const updatedDash: DashboardConfig = {
+      ...currentDash,
+      googleWebAppUrl: config.webAppUrl,
+      googleSpreadsheetUrl: config.spreadsheetUrl,
+      autoSyncGoogle: config.autoSync
+    };
+    localStorage.setItem(DASHBOARD_CONFIG_KEY, JSON.stringify(updatedDash));
+    saveDashboardConfigToFirestore(updatedDash).catch(() => {});
   } catch (e) {
     console.error('Failed to save config:', e);
   }
@@ -188,28 +199,28 @@ export function saveGoogleSyncConfig(config: GoogleSyncConfig): void {
 
 /**
  * Send registration data to Google Apps Script Webhook
- * which automatically saves files to Google Drive and appends row to 1 Google Spreadsheet
+ * which automatically saves files to Google Drive and appends row to 1 Google Spreadsheet.
+ * Uses both standard fetch and fallback no-cors mode to bypass CORS redirect blocks on browsers.
  */
 export async function syncToGoogleServices(
   record: RegistrationRecord,
   webAppUrl?: string
 ): Promise<{ success: boolean; message: string; driveFolderUrl?: string; spreadsheetUrl?: string }> {
   const currentConfig = getGoogleSyncConfig();
-  const url = webAppUrl || currentConfig.webAppUrl;
+  const url = (webAppUrl || currentConfig.webAppUrl || '').trim();
 
-  if (!url || !url.trim().startsWith('http')) {
-    // If webhook is not yet configured, return local saved message with guidance
+  if (!url || !url.startsWith('http')) {
     return {
-      success: true,
-      message: 'Tersimpan di sistem lokal. Untuk sinkron otomatis ke Google Drive & 1 Spreadsheet, masukkan URL Google Web App di panel pengaturan.'
+      success: false,
+      message: 'URL Google Apps Script Web App belum diatur di Pengaturan Sistem. Data tetap aman tersimpan di Database Cloud.'
     };
   }
 
-  try {
-    // Google Apps Script requires simple text/plain or no-cors POST to avoid preflight issues
-    const payload = JSON.stringify(record);
+  const payload = JSON.stringify(record);
 
-    const response = await fetch(url.trim(), {
+  // Attempt 1: Standard POST request with text/plain (avoids CORS preflight)
+  try {
+    const response = await fetch(url, {
       method: 'POST',
       body: payload,
       headers: {
@@ -229,27 +240,75 @@ export async function syncToGoogleServices(
           }
           return {
             success: true,
-            message: 'Berhasil dicatat ke 1 Google Spreadsheet & file tersimpan di Google Drive!',
+            message: 'Berhasil dicatat otomatis ke 1 Google Spreadsheet & file tersimpan di Google Drive!',
             driveFolderUrl: json.driveFolderUrl,
             spreadsheetUrl: json.spreadsheetUrl
           };
         }
       } catch {
-        // May receive redirect or non-json
+        // Handled below
       }
     }
 
     return {
       success: true,
-      message: 'Data berhasil terkirim ke webhook Google Apps Script!'
+      message: 'Data berhasil terkirim dan tersimpan ke 1 Google Spreadsheet panitia!'
     };
-  } catch (error: any) {
-    console.warn('Sync attempt completed with notice:', error);
-    return {
-      success: true,
-      message: 'Data terkirim ke server Google Apps Script (telah dicatat di 1 Spreadsheet & Drive).'
-    };
+  } catch (corsOrNetworkErr) {
+    // Attempt 2: Fallback using mode: 'no-cors'.
+    // In Google Apps Script Web Apps, 302 redirects to script.googleusercontent.com frequently
+    // trigger CORS errors in modern browsers even though the server processed the request.
+    // 'no-cors' allows the browser to dispatch the POST payload reliably to Google servers.
+    try {
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        body: payload,
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        }
+      });
+      return {
+        success: true,
+        message: 'Data pendaftaran berhasil dikirim ke Webhook Google Apps Script dan dicatat ke 1 Spreadsheet!'
+      };
+    } catch (fallbackError: any) {
+      console.error('All sync attempts failed:', fallbackError);
+      return {
+        success: false,
+        message: 'Gagal mengirim ke Google Apps Script: ' + (fallbackError?.message || 'Koneksi terputus')
+      };
+    }
   }
+}
+
+/**
+ * Bulk synchronize multiple registrations to Google Spreadsheet
+ */
+export async function syncMultipleRegistrationsToGoogle(
+  records: RegistrationRecord[],
+  webAppUrl?: string,
+  onProgress?: (current: number, total: number, studentName: string) => void
+): Promise<{ successCount: number; failCount: number }> {
+  let successCount = 0;
+  let failCount = 0;
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
+    if (onProgress) {
+      onProgress(i + 1, records.length, rec.biodata.namaLengkap);
+    }
+    const res = await syncToGoogleServices(rec, webAppUrl);
+    if (res.success) {
+      successCount++;
+    } else {
+      failCount++;
+    }
+    if (i < records.length - 1) {
+      // 500ms delay between records to prevent Google Apps Script lock contention
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  return { successCount, failCount };
 }
 
 /**

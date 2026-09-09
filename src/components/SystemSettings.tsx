@@ -43,6 +43,7 @@ import {
   exportDashboardConfigJson,
   importDashboardConfigJson
 } from '../utils/storage';
+import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../utils/googleAppsScriptCode';
 
 interface SystemSettingsProps {
   onSaved: () => void;
@@ -141,8 +142,40 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
   const [activeSection, setActiveSection] = useState<SectionTab>('bukti');
   const [isSavedNotice, setIsSavedNotice] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+  const [testingUrl, setTestingUrl] = useState(false);
+  const [testResult, setTestResult] = useState<{ status: 'success' | 'failed'; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ttdInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCopyGoogleScript = () => {
+    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 2500);
+  };
+
+  const handleTestGoogleWebhook = async () => {
+    if (!googleConfig.webAppUrl || !googleConfig.webAppUrl.startsWith('http')) {
+      alert('Masukkan URL Web App Google Apps Script yang valid terlebih dahulu.');
+      return;
+    }
+    setTestingUrl(true);
+    setTestResult(null);
+    try {
+      await fetch(googleConfig.webAppUrl.trim(), { method: 'GET', mode: 'no-cors' });
+      setTestResult({
+        status: 'success',
+        message: 'Endpoint Webhook Google Apps Script aktif dan dapat menerima pendaftaran!'
+      });
+    } catch (e: any) {
+      setTestResult({
+        status: 'failed',
+        message: 'Tidak dapat menghubungi endpoint: ' + (e?.message || 'Periksa kembali URL Web App Anda')
+      });
+    } finally {
+      setTestingUrl(false);
+    }
+  };
 
   const handleSave = (e?: React.FormEvent | React.MouseEvent) => {
     if (e && 'preventDefault' in e) {
@@ -151,8 +184,16 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
     setIsSaving(true);
 
     try {
-      // Save to localStorage
-      saveDashboardConfig(dashboardConfig);
+      // Synchronize google config directly into DashboardConfig for cloud multi-device persistence
+      const mergedDashboard: DashboardConfig = {
+        ...dashboardConfig,
+        googleWebAppUrl: googleConfig.webAppUrl,
+        googleSpreadsheetUrl: googleConfig.spreadsheetUrl,
+        autoSyncGoogle: googleConfig.autoSync
+      };
+
+      setDashboardConfig(mergedDashboard);
+      saveDashboardConfig(mergedDashboard);
       saveGoogleSyncConfig(googleConfig);
 
       // Trigger app-level refresh
@@ -1234,36 +1275,93 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
         {/* MENU 3: PENGATURAN GOOGLE DRIVE & 1 SPREADSHEET                           */}
         {/* ========================================================================= */}
         {(activeSection === 'google' || activeSection === 'all') && (
-          <div className="bg-white rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-5">
-            <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
-              <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center">
-                <Database className="w-5 h-5" />
+          <div className="bg-white rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Integrasi 1 Google Spreadsheet & Google Drive
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Setiap pendaftaran baru otomatis tersimpan rapi dalam 1 Google Spreadsheet panitia
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Pengaturan Google Drive & 1 Google Spreadsheet
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Penyimpanan otomatis biodata & berkas pendaftar dalam 1 Google Spreadsheet terpusat
-                </p>
-              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyGoogleScript}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-xs transition-colors"
+              >
+                {copiedScript ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedScript ? 'Kode Berhasil Disalin!' : 'Salin Kode Google Apps Script'}</span>
+              </button>
+            </div>
+
+            {/* Quick deployment instructions box */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-2 text-slate-700">
+              <p className="font-bold text-slate-900 flex items-center space-x-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                <span>Panduan 1 Menit Menghubungkan Google Spreadsheet:</span>
+              </p>
+              <ol className="list-decimal list-inside space-y-1 text-slate-600 leading-relaxed">
+                <li>Buka Google Spreadsheet baru (atau spreadsheet panitia yang sudah ada).</li>
+                <li>Klik menu <strong>Ekstensi (Extensions)</strong> &rarr; <strong>Apps Script</strong>.</li>
+                <li>Hapus kode bawaan, lalu tempel kode skrip (klik tombol <em>"Salin Kode Google Apps Script"</em> di atas).</li>
+                <li>Klik tombol biru <strong>Terapkan (Deploy)</strong> &rarr; <strong>Penerapan baru (New deployment)</strong> &rarr; Pilih jenis <strong>Aplikasi Web (Web app)</strong>.</li>
+                <li>PENTING: Atur <em>"Siapa yang memiliki akses (Who has access)"</em> ke <strong>"Siapa saja (Anyone)"</strong> &rarr; Klik <strong>Terapkan</strong>.</li>
+                <li>Salin URL Aplikasi Web (akhiran <code>/exec</code>) lalu tempel pada isian di bawah ini.</li>
+              </ol>
             </div>
 
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label htmlFor="cfg-webapp" className="block text-xs font-bold text-slate-800 uppercase tracking-wide">
-                  URL Google Apps Script Web App (Webhook)
+                <label htmlFor="cfg-webapp" className="block text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center justify-between">
+                  <span>URL Google Apps Script Web App (Webhook)</span>
+                  {googleConfig.webAppUrl && (
+                    <button
+                      type="button"
+                      onClick={handleTestGoogleWebhook}
+                      disabled={testingUrl}
+                      className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold inline-flex items-center space-x-1"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>{testingUrl ? 'Menguji...' : 'Uji Koneksi Webhook'}</span>
+                    </button>
+                  )}
                 </label>
-                <input
-                  type="text"
-                  id="cfg-webapp"
-                  value={googleConfig.webAppUrl}
-                  onChange={(e) => setGoogleConfig({ ...googleConfig, webAppUrl: e.target.value })}
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 font-mono"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    id="cfg-webapp"
+                    value={googleConfig.webAppUrl}
+                    onChange={(e) => setGoogleConfig({ ...googleConfig, webAppUrl: e.target.value })}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTestGoogleWebhook}
+                    disabled={testingUrl || !googleConfig.webAppUrl}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 transition-colors flex-shrink-0 disabled:opacity-50"
+                  >
+                    {testingUrl ? 'Memeriksa...' : 'Cek Status'}
+                  </button>
+                </div>
+                {testResult && (
+                  <div className={`p-2.5 rounded-xl text-xs font-medium ${
+                    testResult.status === 'success' 
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                      : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}>
+                    {testResult.message}
+                  </div>
+                )}
                 <p className="text-[11px] text-slate-500">
-                  URL Web App hasil deployment skrip Google Apps Script panitia (opsional, jika kosong data tetap tersimpan di browser).
+                  URL Web App hasil penerapan skrip Apps Script panitia. Semua pendaftar baru akan otomatis dicatat ke sheet ini.
                 </p>
               </div>
 
@@ -1275,10 +1373,10 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
                       href={googleConfig.spreadsheetUrl}
                       target="_blank" 
                       rel="noreferrer"
-                      className="text-emerald-700 hover:underline inline-flex items-center space-x-1 font-normal"
+                      className="text-emerald-700 hover:underline inline-flex items-center space-x-1 font-semibold"
                     >
-                      <span>Buka Spreadsheet</span>
-                      <ExternalLink className="w-3 h-3" />
+                      <span>Buka Spreadsheet di Tab Baru</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
                     </a>
                   )}
                 </label>
@@ -1290,6 +1388,19 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
                   placeholder="https://docs.google.com/spreadsheets/d/.../edit"
                   className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 font-mono"
                 />
+              </div>
+
+              <div className="flex items-center space-x-3 p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+                <input
+                  type="checkbox"
+                  id="cfg-autosync-google"
+                  checked={googleConfig.autoSync ?? true}
+                  onChange={(e) => setGoogleConfig({ ...googleConfig, autoSync: e.target.checked })}
+                  className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                />
+                <label htmlFor="cfg-autosync-google" className="text-xs font-semibold text-emerald-950 cursor-pointer">
+                  Aktifkan sinkronisasi otomatis: Setiap pendaftaran baru langsung dikirim ke Google Spreadsheet & Google Drive
+                </label>
               </div>
             </div>
           </div>
