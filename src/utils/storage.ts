@@ -1,9 +1,14 @@
 import { RegistrationRecord, GoogleSyncConfig, DashboardConfig } from '../types';
+import { saveDashboardConfigToFirestore, saveRegistrationToFirestore, deleteRegistrationFromFirestore } from './firebase';
 
 const STORAGE_KEY = 'ppl_fkip_uij_registrations';
 const CONFIG_KEY = 'ppl_fkip_uij_google_config';
 const DASHBOARD_CONFIG_KEY = 'ppl_fkip_uij_dashboard_config';
 const DATA_PURGED_KEY = 'ppl_fkip_uij_data_purged_flag_v1';
+
+export const DEFAULT_UIJ_LOGO = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><circle cx="80" cy="80" r="76" fill="%23065f46" stroke="%23fbbf24" stroke-width="6"/><circle cx="80" cy="80" r="68" fill="none" stroke="%23ffffff" stroke-width="2"/><text x="80" y="68" font-family="sans-serif" font-size="34" font-weight="900" fill="%23ffffff" text-anchor="middle" dominant-baseline="middle">UIJ</text><text x="80" y="98" font-family="sans-serif" font-size="18" font-weight="bold" fill="%23fde68a" text-anchor="middle" dominant-baseline="middle">FKIP</text><text x="80" y="122" font-family="sans-serif" font-size="13" fill="%23fbbf24" text-anchor="middle" dominant-baseline="middle">★ ★ ★</text></svg>`;
+
+export const DEFAULT_TTD_IMAGE = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 100"><path d="M30,60 C40,20 55,15 65,45 C70,65 78,75 90,35 C100,15 110,25 120,55 C130,70 140,48 150,55 C160,62 170,45 180,50 M35,75 C90,70 160,72 215,65 M175,72 C190,70 205,78 220,74" fill="none" stroke="%231e3a8a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export const DEFAULT_DASHBOARD_CONFIG: DashboardConfig = {
   judulKegiatan: 'Formulir Pendaftaran PPL FKIP UIJ',
@@ -18,14 +23,14 @@ export const DEFAULT_DASHBOARD_CONFIG: DashboardConfig = {
   lokasiKampus: 'Kampus UIJ, Jl. Kyai Mojo No. 101, Kaliwates, Jember',
   judulBuktiPendaftaran: 'TANDA BUKTI PENDAFTARAN RESMI',
   subjudulBuktiPendaftaran: 'PRAKTIK PENGALAMAN LAPANGAN (PPL)',
-  logoTemplateUrl: '',
+  logoTemplateUrl: DEFAULT_UIJ_LOGO,
   linkWaGrup: 'https://chat.whatsapp.com/invite/ppl-fkip-uij',
   namaWaGrup: 'Grup WhatsApp Resmi Peserta PPL FKIP UIJ',
   pesanWaGrup: 'Seluruh mahasiswa yang telah mendaftar wajib bergabung ke Grup WhatsApp resmi untuk informasi pembekalan, ploting sekolah mitra, dan koordinasi dengan Dosen Pembimbing Lapangan (DPL).',
   namaPanitiaPpl: 'H. Moh. Hasan, M.Pd.I',
   nidnPanitiaPpl: '0715088201',
   jabatanPanitiaPpl: 'Ketua Panitia PPL FKIP UIJ',
-  ttdPanitiaUrl: ''
+  ttdPanitiaUrl: DEFAULT_TTD_IMAGE
 };
 
 export function getDashboardConfig(): DashboardConfig {
@@ -34,7 +39,13 @@ export function getDashboardConfig(): DashboardConfig {
     if (!raw) {
       return DEFAULT_DASHBOARD_CONFIG;
     }
-    return { ...DEFAULT_DASHBOARD_CONFIG, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_DASHBOARD_CONFIG,
+      ...parsed,
+      logoTemplateUrl: parsed.logoTemplateUrl || DEFAULT_DASHBOARD_CONFIG.logoTemplateUrl,
+      ttdPanitiaUrl: parsed.ttdPanitiaUrl || DEFAULT_DASHBOARD_CONFIG.ttdPanitiaUrl,
+    };
   } catch {
     return DEFAULT_DASHBOARD_CONFIG;
   }
@@ -43,8 +54,30 @@ export function getDashboardConfig(): DashboardConfig {
 export function saveDashboardConfig(config: DashboardConfig): void {
   try {
     localStorage.setItem(DASHBOARD_CONFIG_KEY, JSON.stringify(config));
+    saveDashboardConfigToFirestore(config).catch(() => {});
   } catch (e) {
     console.error('Failed to save dashboard config:', e);
+  }
+}
+
+export function exportDashboardConfigJson(config: DashboardConfig): string {
+  return JSON.stringify(config, null, 2);
+}
+
+export function importDashboardConfigJson(jsonStr: string): DashboardConfig | null {
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (parsed && typeof parsed === 'object' && parsed.judulKegiatan) {
+      const merged: DashboardConfig = {
+        ...DEFAULT_DASHBOARD_CONFIG,
+        ...parsed
+      };
+      saveDashboardConfig(merged);
+      return merged;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -82,6 +115,7 @@ export function deleteRegistrationRecord(id: string): void {
     const records = getSavedRegistrations();
     const updated = records.filter((r) => r.id !== id);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    deleteRegistrationFromFirestore(id).catch(() => {});
   } catch (e) {
     console.error('Failed to delete registration record:', e);
   }
@@ -90,9 +124,9 @@ export function deleteRegistrationRecord(id: string): void {
 export function saveRegistration(record: RegistrationRecord): void {
   try {
     const records = getSavedRegistrations();
-    // Prepend to show newest first
     const updated = [record, ...records];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    saveRegistrationToFirestore(record).catch(() => {});
   } catch (e) {
     console.error('Failed to save registration:', e);
   }
@@ -112,6 +146,8 @@ export function updateRegistrationStatus(
       return r;
     });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    const found = updated.find((r) => r.id === id);
+    if (found) { saveRegistrationToFirestore(found).catch(() => {}); }
   } catch (e) {
     console.error('Failed to update status:', e);
   }

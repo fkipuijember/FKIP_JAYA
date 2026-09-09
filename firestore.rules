@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pengaturan Tampilan & Template Sistem (Kop Surat, Logo, TTD, Link WA Grup)
+    match /config/dashboard {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Pendaftaran Mahasiswa PPL FKIP UIJ
+    match /registrations/{registrationId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+  }
+}

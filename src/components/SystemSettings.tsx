@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { saveDashboardConfigToFirestore } from '../utils/firebase';
 import { 
   Save, 
   RotateCcw, 
@@ -23,7 +24,14 @@ import {
   Image as ImageIcon,
   PenTool,
   UserCheck,
-  Type
+  Type,
+  Download,
+  Share2,
+  Copy,
+  Globe,
+  UploadCloud,
+  Cloud,
+  Zap
 } from 'lucide-react';
 import { DashboardConfig, GoogleSyncConfig } from '../types';
 import { 
@@ -31,14 +39,16 @@ import {
   saveDashboardConfig, 
   DEFAULT_DASHBOARD_CONFIG, 
   getGoogleSyncConfig, 
-  saveGoogleSyncConfig 
+  saveGoogleSyncConfig,
+  exportDashboardConfigJson,
+  importDashboardConfigJson
 } from '../utils/storage';
 
 interface SystemSettingsProps {
   onSaved: () => void;
 }
 
-type SectionTab = 'bukti' | 'dashboard' | 'google' | 'all';
+type SectionTab = 'bukti' | 'dashboard' | 'google' | 'vercel' | 'all';
 
 /**
  * Generates an official UIJ emblem as a crisp PNG Data URL
@@ -259,6 +269,99 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
     }
   };
 
+  // Vercel & Cross-browser sync handlers
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [importJsonText, setImportJsonText] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
+  const jsonFileInputRef = useRef<HTMLInputElement>(null);
+
+  
+  const [isPushingCloud, setIsPushingCloud] = useState(false);
+  const [cloudPushSuccess, setCloudPushSuccess] = useState(false);
+
+  const handlePushToFirebase = async () => {
+    setIsPushingCloud(true);
+    const success = await saveDashboardConfigToFirestore(dashboardConfig);
+    setIsPushingCloud(false);
+    if (success) {
+      setCloudPushSuccess(true);
+      setTimeout(() => setCloudPushSuccess(false), 4000);
+    } else {
+      alert('Gagal menyinkronkan ke Firebase. Periksa koneksi internet.');
+    }
+  };
+
+  const handleDownloadAppConfigJson = () => {
+    const jsonStr = exportDashboardConfigJson(dashboardConfig);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'app-config.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyShareableUrl = () => {
+    try {
+      const jsonStr = JSON.stringify(dashboardConfig);
+      const base64 = btoa(unescape(encodeURIComponent(jsonStr)));
+      const url = `${window.location.origin}${window.location.pathname}#config=${encodeURIComponent(base64)}`;
+      navigator.clipboard.writeText(url);
+      setCopyFeedback('url');
+      setTimeout(() => setCopyFeedback(null), 3500);
+    } catch (e: any) {
+      alert('Gagal menyalin tautan: ' + e?.message);
+    }
+  };
+
+  const handleCopyJson = () => {
+    const jsonStr = exportDashboardConfigJson(dashboardConfig);
+    navigator.clipboard.writeText(jsonStr);
+    setCopyFeedback('json');
+    setTimeout(() => setCopyFeedback(null), 3500);
+  };
+
+  const handleApplyImportedJson = () => {
+    if (!importJsonText.trim()) {
+      setImportError('Harap tempelkan teks konfigurasi JSON.');
+      return;
+    }
+    const imported = importDashboardConfigJson(importJsonText.trim());
+    if (imported) {
+      setDashboardConfig(imported);
+      setImportError(null);
+      setImportJsonText('');
+      setIsSavedNotice(true);
+      onSaved();
+      setTimeout(() => setIsSavedNotice(false), 4000);
+    } else {
+      setImportError('Format JSON tidak valid atau struktur tidak sesuai.');
+    }
+  };
+
+  const handleJsonFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = reader.result as string;
+      const imported = importDashboardConfigJson(content);
+      if (imported) {
+        setDashboardConfig(imported);
+        setImportError(null);
+        setIsSavedNotice(true);
+        onSaved();
+        setTimeout(() => setIsSavedNotice(false), 4000);
+      } else {
+        setImportError('File JSON tidak valid.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="space-y-6 relative">
       {/* Floating Success Toast Notification */}
@@ -339,6 +442,24 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
           >
             <Database className="w-4 h-4" />
             <span>Google Drive & Spreadsheet</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSection('vercel')}
+            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center space-x-1.5 transition-all ${
+              activeSection === 'vercel'
+                ? 'bg-emerald-700 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            <span>Sinkronisasi Vercel</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold uppercase tracking-wider ${
+              activeSection === 'vercel' ? 'bg-emerald-900 text-emerald-200' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              Multi-Device
+            </span>
           </button>
 
           <button
@@ -1174,7 +1295,210 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ onSaved }) => {
           </div>
         )}
 
-        {/* BOTTOM ACTION BAR */}
+        {/* ========================================================================= */}
+        {/* MENU 4: SINKRONISASI VERCEL & MULTI-DEVICE (AGAR TIDAK KEMBALI KE AWAL)   */}
+        {/* ========================================================================= */}
+        {(activeSection === 'vercel' || activeSection === 'all') && (
+          <div className="bg-white rounded-2xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center flex-shrink-0">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Sinkronisasi Vercel & Pengaturan Antar Perangkat
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Solusi agar setelan tidak kembali ke awal saat dibuka di HP atau browser lain
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Kotak Informasi Masalah & Solusi */}
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm space-y-2">
+              <p className="font-bold flex items-center space-x-1.5 text-amber-950">
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <span>Mengapa di Vercel pengaturannya kembali ke awal saat dibuka di browser/HP lain?</span>
+              </p>
+              <p className="text-amber-800/90 leading-relaxed text-xs">
+                Secara *default*, perubahan yang disimpan di dashboard admin disimpan di memori browser lokal (<code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-amber-900">localStorage</code>) perangkat yang sedang digunakan. Saat Anda membuka link Vercel di browser lain, HP, atau mode incognito, browser baru tersebut belum memiliki data <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-amber-900">localStorage</code> sehingga menggunakan setelan bawaan.
+              </p>
+              <p className="text-amber-800/90 leading-relaxed text-xs font-semibold">
+                Gunakan salah satu dari opsi di bawah agar setelan Anda tersinkronisasi dan tampil permanen untuk semua orang:
+              </p>
+            </div>
+
+            
+            {/* KARTU STATUS DATABASE CLOUD FIREBASE */}
+            <div className="bg-gradient-to-r from-emerald-900 to-teal-950 text-white p-5 rounded-2xl shadow-md space-y-3 border border-emerald-600/50">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-xs font-bold text-emerald-200 uppercase tracking-wide">
+                      Cloud Firestore Real-Time Aktif
+                    </span>
+                  </div>
+                  <h4 className="text-base font-bold text-white flex items-center space-x-2">
+                    <Cloud className="w-5 h-5 text-emerald-300" />
+                    <span>Sinkronisasi Database Cloud Otomatis</span>
+                  </h4>
+                  <p className="text-xs text-emerald-100/90 leading-relaxed max-w-3xl">
+                    Aplikasi ini telah terhubung ke database cloud Firebase Firestore. Setiap kali Anda menekan tombol <strong>Simpan Perubahan</strong> di dashboard ini, data akan langsung tersimpan ke cloud dan <strong>otomatis terupdate secara real-time di seluruh HP & browser mahasiswa tanpa perlu redeploy ke Vercel</strong>!
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-1 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handlePushToFirebase}
+                  disabled={isPushingCloud}
+                  className="px-4 py-2.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-950 text-xs font-bold flex items-center space-x-2 transition-all shadow-sm active:scale-95"
+                >
+                  {isPushingCloud ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-emerald-950 border-t-transparent rounded-full animate-spin" />
+                      <span>Menyinkronkan ke Cloud...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 text-emerald-700" />
+                      <span>{cloudPushSuccess ? '✓ Sukses Tersinkron ke Cloud Firestore!' : 'Kirim Ulang Setelan Saat Ini ke Cloud'}</span>
+                    </>
+                  )}
+                </button>
+                <span className="text-[11px] text-emerald-300 font-mono">
+                  Project: gen-lang-client-0086413316
+                </span>
+              </div>
+            </div>
+
+            {/* OPSI 1: UNDUH APP-CONFIG.JSON UNTUK VERCEL */}
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-emerald-800 uppercase tracking-wide bg-emerald-100 px-2 py-0.5 rounded-md inline-block">
+                    Opsi 1: Paling Direkomendasikan untuk Vercel
+                  </span>
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Jadikan Setelan Bawaan Proyek (Unduh Berkas app-config.json)
+                  </h4>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Unduh file konfigurasi aktif Anda saat ini. Letakkan file ini di folder <code className="bg-slate-200 text-slate-900 px-1 py-0.5 rounded font-mono text-xs">public/app-config.json</code> proyek GitHub Anda, lalu deploy ulang ke Vercel. Setelah itu, <strong>seluruh mahasiswa dan siapapun yang membuka link Vercel akan otomatis mendapatkan setelan terbaru</strong> tanpa perlu login.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-wrap gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadAppConfigJson}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center space-x-2 transition-all shadow-xs"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Unduh File app-config.json</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyJson}
+                  className="px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center space-x-2 transition-all"
+                >
+                  <Copy className="w-4 h-4 text-slate-500" />
+                  <span>{copyFeedback === 'json' ? '✓ Teks JSON Disalin!' : 'Salin Teks JSON'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* OPSI 2: TAUTAN SINKRONISASI CEPAT */}
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-3">
+              <span className="text-xs font-bold text-blue-800 uppercase tracking-wide bg-blue-100 px-2 py-0.5 rounded-md inline-block">
+                Opsi 2: Cepat Antar HP / Laptop
+              </span>
+              <h4 className="text-sm font-bold text-slate-900">
+                Salin Tautan Sinkronisasi Pengaturan Instan
+              </h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Buat tautan khusus yang membawa data pengaturan Anda. Cukup kirim dan buka tautan tersebut di HP atau browser lain, maka seluruh data logo, judul, WA grup, dan tanda tangan akan otomatis terpasang dalam 1 detik.
+              </p>
+
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={handleCopyShareableUrl}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center space-x-2 transition-all shadow-xs"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>{copyFeedback === 'url' ? '✓ Tautan Berhasil Disalin ke Clipboard!' : 'Salin Tautan Sinkronisasi Pengaturan'}</span>
+                </button>
+                {copyFeedback === 'url' && (
+                  <p className="text-xs text-blue-700 font-medium mt-1.5">
+                    Tautan telah disalin! Buka tautan tersebut di browser lain untuk langsung menerapkan pengaturan ini.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* OPSI 3: IMPOR CADANGAN JSON */}
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-3">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wide bg-slate-200 px-2 py-0.5 rounded-md inline-block">
+                Opsi 3: Pulihkan dari File Cadangan
+              </span>
+              <h4 className="text-sm font-bold text-slate-900">
+                Impor Pengaturan dari File Cadangan / Teks JSON
+              </h4>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Jika Anda memiliki file JSON cadangan atau teks konfigurasi dari browser lain, Anda dapat mengunggah atau menempelkannya di sini.
+              </p>
+
+              <div className="space-y-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="file"
+                    ref={jsonFileInputRef}
+                    onChange={handleJsonFileUpload}
+                    accept=".json,application/json"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => jsonFileInputRef.current?.click()}
+                    className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center space-x-1.5 transition-all"
+                  >
+                    <UploadCloud className="w-4 h-4 text-slate-600" />
+                    <span>Pilih Berkas .json</span>
+                  </button>
+                </div>
+
+                <textarea
+                  value={importJsonText}
+                  onChange={(e) => setImportJsonText(e.target.value)}
+                  placeholder="Atau tempel teks JSON konfigurasi di sini..."
+                  rows={3}
+                  className="w-full px-3.5 py-2 text-xs font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 bg-white"
+                />
+
+                {importError && (
+                  <p className="text-xs text-red-600 font-semibold">{importError}</p>
+                )}
+
+                {importJsonText.trim() && (
+                  <button
+                    type="button"
+                    onClick={handleApplyImportedJson}
+                    className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-xs"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Terapkan Teks Konfigurasi Ini</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
           <button
             type="button"

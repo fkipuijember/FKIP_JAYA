@@ -10,6 +10,7 @@ interface NavbarProps {
   isAdminAuthenticated: boolean;
   onLogout: () => void;
   dashboardConfig?: DashboardConfig;
+  isCloudConnected?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,7 +20,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   isDriveSyncConfigured,
   isAdminAuthenticated,
   onLogout,
-  dashboardConfig
+  dashboardConfig,
+  isCloudConnected = false
 }) => {
   const displayTahun = dashboardConfig?.tahunAkademik?.trim()
     ? (/^tahun/i.test(dashboardConfig.tahunAkademik.trim())
@@ -60,6 +62,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Navigation Controls */}
           <div className="flex items-center space-x-2 sm:space-x-3">
+                        {/* Firebase Cloud Real-time Status */}
+            <div 
+              className={`hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${
+                isCloudConnected
+                  ? 'bg-emerald-800/90 border-emerald-500/60 text-emerald-100'
+                  : 'bg-emerald-950/70 border-emerald-800 text-emerald-300/80'
+              }`}
+              title={isCloudConnected ? 'Database Cloud Firebase Firestore aktif & tersinkronisasi secara real-time' : 'Menghubungkan ke Cloud Firestore...'}
+            >
+              <span className={`w-2 h-2 rounded-full ${isCloudConnected ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500'}`} />
+              <span>{isCloudConnected ? 'Cloud Real-time' : 'Cloud Sync'}</span>
+            </div>
+
             {/* Google Sync Status Pill */}
             <button
               id="btn-google-sync-status"

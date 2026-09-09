@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "DashboardConfig": {
+      "title": "DashboardConfig",
+      "description": "Global application configuration for branding, logos, signatures, and WhatsApp group.",
+      "type": "object",
+      "properties": {
+        "judulKegiatan": { "type": "string" },
+        "subjudul": { "type": "string" },
+        "tahunAkademik": { "type": "string" },
+        "periodePendaftaran": { "type": "string" },
+        "petunjukUmum": { "type": "string" },
+        "catatanFoto": { "type": "string" },
+        "rekeningPembayaran": { "type": "string" },
+        "nomorWaPanitia": { "type": "string" },
+        "emailPanitia": { "type": "string" },
+        "lokasiKampus": { "type": "string" },
+        "judulBuktiPendaftaran": { "type": "string" },
+        "subjudulBuktiPendaftaran": { "type": "string" },
+        "logoTemplateUrl": { "type": "string" },
+        "linkWaGrup": { "type": "string" },
+        "namaWaGrup": { "type": "string" },
+        "pesanWaGrup": { "type": "string" },
+        "namaPanitiaPpl": { "type": "string" },
+        "nidnPanitiaPpl": { "type": "string" },
+        "jabatanPanitiaPpl": { "type": "string" },
+        "ttdPanitiaUrl": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "RegistrationRecord": {
+      "title": "RegistrationRecord",
+      "description": "Student registration record for PPL FKIP UIJ.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nomorPendaftaran": { "type": "string" },
+        "waktuPendaftaran": { "type": "string" },
+        "namaLengkap": { "type": "string" },
+        "nim": { "type": "string" },
+        "programStudi": { "type": "string" },
+        "semester": { "type": "string" },
+        "tahunAkademik": { "type": "string" },
+        "jenisKelamin": { "type": "string" },
+        "tempatLahir": { "type": "string" },
+        "tanggalLahir": { "type": "string" },
+        "nomorWhatsApp": { "type": "string" },
+        "email": { "type": "string" },
+        "alamatDomisili": { "type": "string" },
+        "ukuranJas": { "type": "string" },
+        "pilihanSekolahMitra": { "type": "string" },
+        "statusVerifikasi": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/config/dashboard": {
+      "schema": "DashboardConfig",
+      "description": "Global application branding, contacts, and receipt template settings"
+    },
+    "/registrations/{registrationId}": {
+      "schema": "RegistrationRecord",
+      "description": "Collection of student PPL registration documents"
+    }
+  }
+}

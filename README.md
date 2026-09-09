@@ -38,6 +38,12 @@ vercel --prod
 
 ---
 
+
+## ☁️ Sinkronisasi Database Cloud Firebase Firestore (Real-Time)
+Aplikasi ini telah terintegrasi dengan **Firebase Cloud Firestore**.
+- **Real-Time Configuration Sync**: Setiap kali panitia mengubah judul, logo, tanda tangan, link WA grup, atau kop surat di panel admin, perubahannya otomatis tersimpan di Cloud Firestore dan langsung aktif secara real-time di seluruh HP dan browser pengunjung di Vercel tanpa perlu redeploy.
+- **Real-Time Registrations Sync**: Data pendaftaran mahasiswa tersimpan di Cloud Firestore, Google Drive/Spreadsheet, dan backup lokal.
+
 ## 🛠 Fitur Aplikasi
 - **Pendaftaran Mandiri Mahasiswa**: Tanpa login, validasi berkas otomatis (KRS, Slip UKT, Transkrip, Pasfoto).
 - **Cetak Bukti PDF Otomatis**: Dilengkapi kop surat resmi, template logo, judul kustom, dan tanda tangan (TTD) panitia pelaksana.

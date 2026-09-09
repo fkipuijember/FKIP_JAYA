@@ -6,7 +6,8 @@ import { AdminLogin } from './components/AdminLogin';
 import { SuccessModal } from './components/SuccessModal';
 import { GoogleSyncModal } from './components/GoogleSyncModal';
 import { RegistrationRecord, DashboardConfig } from './types';
-import { getSavedRegistrations, getGoogleSyncConfig, getDashboardConfig } from './utils/storage';
+import { getSavedRegistrations, getGoogleSyncConfig, getDashboardConfig, saveDashboardConfig } from './utils/storage';
+import { testFirestoreConnection, subscribeDashboardConfig, subscribeRegistrations } from './utils/firebase';
 import { GraduationCap, MapPin, Mail, Phone, ExternalLink } from 'lucide-react';
 
 export default function App() {
@@ -20,10 +21,85 @@ export default function App() {
     return typeof window !== 'undefined' && sessionStorage.getItem('ppl_uij_admin_authenticated') === 'true';
   });
   const [configKey, setConfigKey] = useState(0);
+  const [isCloudConnected, setIsCloudConnected] = useState(false);
 
-  // Load records and sync config on mount
+  // Load records and sync config on mount, check URL config parameter, and fetch /app-config.json
   useEffect(() => {
+    // 1. Check if configuration was passed via URL hash (#config=...)
+    try {
+      const hash = window.location.hash;
+      if (hash && hash.includes('config=')) {
+        const base64Data = hash.split('config=')[1];
+        if (base64Data) {
+          const jsonStr = decodeURIComponent(escape(atob(decodeURIComponent(base64Data))));
+          const parsed = JSON.parse(jsonStr);
+          if (parsed && typeof parsed === 'object') {
+            const current = getDashboardConfig();
+            const merged = { ...current, ...parsed };
+            saveDashboardConfig(merged);
+            setDashboardConfig(merged);
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('URL config parse error:', e);
+    }
+
+    // 2. Fetch server /app-config.json so any new browser/device on Vercel gets the latest global config
+    fetch('/app-config.json')
+      .then((res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((serverConfig) => {
+        if (serverConfig && typeof serverConfig === 'object') {
+          const hasCustomLocal = localStorage.getItem('ppl_fkip_uij_dashboard_config');
+          if (!hasCustomLocal) {
+            saveDashboardConfig(serverConfig);
+            setDashboardConfig(serverConfig);
+          } else {
+            // Merge in case new server keys were added
+            try {
+              const localParsed = JSON.parse(hasCustomLocal);
+              const merged = { ...serverConfig, ...localParsed };
+              setDashboardConfig(merged);
+            } catch {
+              setDashboardConfig(serverConfig);
+            }
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        refreshData();
+      });
+
+    
+    // 3. Connect to Firebase Cloud Firestore for real-time multi-device sync
+    testFirestoreConnection().then((connected) => {
+      setIsCloudConnected(connected);
+    });
+
+    const unsubConfig = subscribeDashboardConfig((remoteConfig) => {
+      if (remoteConfig) {
+        setDashboardConfig(remoteConfig);
+        setIsCloudConnected(true);
+        setConfigKey((k) => k + 1);
+      }
+    });
+
+    const unsubRegistrations = subscribeRegistrations((remoteRecords) => {
+      if (remoteRecords && remoteRecords.length > 0) {
+        setRecords(remoteRecords);
+        setIsCloudConnected(true);
+      }
+    });
     refreshData();
+    return () => {
+      unsubConfig();
+      unsubRegistrations();
+    };
   }, []);
 
   const refreshData = () => {
@@ -57,6 +133,7 @@ export default function App() {
         isAdminAuthenticated={isAdminAuthenticated}
         onLogout={handleAdminLogout}
         dashboardConfig={dashboardConfig}
+        isCloudConnected={isCloudConnected}
       />
 
       {/* Main Content Area */}

@@ -15,6 +15,7 @@ import {
 import { BiodataForm, DataPendukungForm, ProgramStudi, RegistrationRecord, DashboardConfig } from '../types';
 import { FileUploadField } from './FileUploadField';
 import { saveRegistration, syncToGoogleServices, getGoogleSyncConfig, getDashboardConfig } from '../utils/storage';
+import { saveRegistrationToFirestore } from '../utils/firebase';
 
 interface RegistrationFormProps {
   onSuccess: (record: RegistrationRecord) => void;
