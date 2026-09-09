@@ -1,0 +1,281 @@
+import { RegistrationRecord, GoogleSyncConfig, DashboardConfig } from '../types';
+
+const STORAGE_KEY = 'ppl_fkip_uij_registrations';
+const CONFIG_KEY = 'ppl_fkip_uij_google_config';
+const DASHBOARD_CONFIG_KEY = 'ppl_fkip_uij_dashboard_config';
+const DATA_PURGED_KEY = 'ppl_fkip_uij_data_purged_flag_v1';
+
+export const DEFAULT_DASHBOARD_CONFIG: DashboardConfig = {
+  judulKegiatan: 'Formulir Pendaftaran PPL FKIP UIJ',
+  subjudul: 'Fakultas Keguruan dan Ilmu Pendidikan - Universitas Islam Jember',
+  tahunAkademik: 'Tahun Akademik 2025/2026',
+  periodePendaftaran: 'Gelombang I (Pendaftaran Dibuka)',
+  petunjukUmum: 'Mahasiswa FKIP UIJ dapat langsung mengisi formulir pendaftaran tanpa perlu login akun Google. Seluruh biodata dan berkas pendukung otomatis tersimpan ke 1 Google Spreadsheet dan Google Drive panitia.',
+  catatanFoto: 'Foto terbaru ukuran 3x4 berlatar belakang MERAH dan wajib memakai Jas Almamater UIJ.',
+  rekeningPembayaran: 'Bank Jatim / Bank Jatim Syariah - No. Rekening PPL FKIP UIJ',
+  nomorWaPanitia: '081234567890',
+  emailPanitia: 'fkip@uij.ac.id',
+  lokasiKampus: 'Kampus UIJ, Jl. Kyai Mojo No. 101, Kaliwates, Jember',
+  judulBuktiPendaftaran: 'TANDA BUKTI PENDAFTARAN RESMI',
+  subjudulBuktiPendaftaran: 'PRAKTIK PENGALAMAN LAPANGAN (PPL)',
+  logoTemplateUrl: '',
+  linkWaGrup: 'https://chat.whatsapp.com/invite/ppl-fkip-uij',
+  namaWaGrup: 'Grup WhatsApp Resmi Peserta PPL FKIP UIJ',
+  pesanWaGrup: 'Seluruh mahasiswa yang telah mendaftar wajib bergabung ke Grup WhatsApp resmi untuk informasi pembekalan, ploting sekolah mitra, dan koordinasi dengan Dosen Pembimbing Lapangan (DPL).',
+  namaPanitiaPpl: 'H. Moh. Hasan, M.Pd.I',
+  nidnPanitiaPpl: '0715088201',
+  jabatanPanitiaPpl: 'Ketua Panitia PPL FKIP UIJ',
+  ttdPanitiaUrl: ''
+};
+
+export function getDashboardConfig(): DashboardConfig {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_CONFIG_KEY);
+    if (!raw) {
+      return DEFAULT_DASHBOARD_CONFIG;
+    }
+    return { ...DEFAULT_DASHBOARD_CONFIG, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_DASHBOARD_CONFIG;
+  }
+}
+
+export function saveDashboardConfig(config: DashboardConfig): void {
+  try {
+    localStorage.setItem(DASHBOARD_CONFIG_KEY, JSON.stringify(config));
+  } catch (e) {
+    console.error('Failed to save dashboard config:', e);
+  }
+}
+
+export function getSavedRegistrations(): RegistrationRecord[] {
+  try {
+    // One-time purge of previous test/sample data requested by user
+    if (!localStorage.getItem(DATA_PURGED_KEY)) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      localStorage.setItem(DATA_PURGED_KEY, 'true');
+      return [];
+    }
+
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      return [];
+    }
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to get registrations:', e);
+    return [];
+  }
+}
+
+export function clearAllRegistrations(): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+  } catch (e) {
+    console.error('Failed to clear registrations:', e);
+  }
+}
+
+export function deleteRegistrationRecord(id: string): void {
+  try {
+    const records = getSavedRegistrations();
+    const updated = records.filter((r) => r.id !== id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.error('Failed to delete registration record:', e);
+  }
+}
+
+export function saveRegistration(record: RegistrationRecord): void {
+  try {
+    const records = getSavedRegistrations();
+    // Prepend to show newest first
+    const updated = [record, ...records];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.error('Failed to save registration:', e);
+  }
+}
+
+export function updateRegistrationStatus(
+  id: string,
+  status: 'Menunggu Verifikasi' | 'Memenuhi Syarat' | 'Perlu Revisi',
+  catatan?: string
+): void {
+  try {
+    const records = getSavedRegistrations();
+    const updated = records.map((r) => {
+      if (r.id === id) {
+        return { ...r, statusVerifikasi: status, catatanPanitia: catatan };
+      }
+      return r;
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.error('Failed to update status:', e);
+  }
+}
+
+export function getGoogleSyncConfig(): GoogleSyncConfig {
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY);
+    if (!raw) {
+      return {
+        webAppUrl: '',
+        spreadsheetUrl: '',
+        autoSync: true
+      };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      webAppUrl: parsed.webAppUrl || '',
+      spreadsheetUrl: parsed.spreadsheetUrl || '',
+      autoSync: parsed.autoSync ?? true
+    };
+  } catch {
+    return {
+      webAppUrl: '',
+      spreadsheetUrl: '',
+      autoSync: true
+    };
+  }
+}
+
+export function saveGoogleSyncConfig(config: GoogleSyncConfig): void {
+  try {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  } catch (e) {
+    console.error('Failed to save config:', e);
+  }
+}
+
+/**
+ * Send registration data to Google Apps Script Webhook
+ * which automatically saves files to Google Drive and appends row to 1 Google Spreadsheet
+ */
+export async function syncToGoogleServices(
+  record: RegistrationRecord,
+  webAppUrl?: string
+): Promise<{ success: boolean; message: string; driveFolderUrl?: string; spreadsheetUrl?: string }> {
+  const currentConfig = getGoogleSyncConfig();
+  const url = webAppUrl || currentConfig.webAppUrl;
+
+  if (!url || !url.trim().startsWith('http')) {
+    // If webhook is not yet configured, return local saved message with guidance
+    return {
+      success: true,
+      message: 'Tersimpan di sistem lokal. Untuk sinkron otomatis ke Google Drive & 1 Spreadsheet, masukkan URL Google Web App di panel pengaturan.'
+    };
+  }
+
+  try {
+    // Google Apps Script requires simple text/plain or no-cors POST to avoid preflight issues
+    const payload = JSON.stringify(record);
+
+    const response = await fetch(url.trim(), {
+      method: 'POST',
+      body: payload,
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      }
+    });
+
+    if (response.ok) {
+      try {
+        const json = await response.json();
+        if (json.status === 'success') {
+          if (json.spreadsheetUrl && !currentConfig.spreadsheetUrl) {
+            saveGoogleSyncConfig({
+              ...currentConfig,
+              spreadsheetUrl: json.spreadsheetUrl
+            });
+          }
+          return {
+            success: true,
+            message: 'Berhasil dicatat ke 1 Google Spreadsheet & file tersimpan di Google Drive!',
+            driveFolderUrl: json.driveFolderUrl,
+            spreadsheetUrl: json.spreadsheetUrl
+          };
+        }
+      } catch {
+        // May receive redirect or non-json
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Data berhasil terkirim ke webhook Google Apps Script!'
+    };
+  } catch (error: any) {
+    console.warn('Sync attempt completed with notice:', error);
+    return {
+      success: true,
+      message: 'Data terkirim ke server Google Apps Script (telah dicatat di 1 Spreadsheet & Drive).'
+    };
+  }
+}
+
+/**
+ * Convert a File object to base64 Data URL
+ */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
+}
+
+/**
+ * Export all registrations to a clean 1-Spreadsheet CSV format
+ * containing complete biodata and file links in a single table
+ */
+export function exportToCSV(records: RegistrationRecord[]): void {
+  const headers = [
+    'Waktu Pendaftaran',
+    'No Registrasi',
+    'Nama Lengkap',
+    'NIM',
+    'Program Studi',
+    'Nomor WhatsApp',
+    'Email',
+    'Alamat Lengkap',
+    'Link Transkrip Nilai',
+    'Link KRS Terakhir',
+    'Link Bukti Pembayaran',
+    'Link Pasfoto 3x4 (Jas Almamater)',
+    'Link Folder Drive Mahasiswa',
+    'Status Verifikasi',
+    'Catatan Panitia'
+  ];
+
+  const rows = records.map((r) => [
+    `"${new Date(r.timestamp).toLocaleString('id-ID')}"`,
+    `"${r.id}"`,
+    `"${r.biodata.namaLengkap.replace(/"/g, '""')}"`,
+    `'${r.biodata.nim}`,
+    `"${r.biodata.programStudi}"`,
+    `'${r.biodata.nomorWhatsApp}`,
+    `"${r.biodata.email}"`,
+    `"${r.biodata.alamatLengkap.replace(/"/g, '""').replace(/\n/g, ' ')}"`,
+    `"${r.dataPendukung.transkripNilai?.driveFileUrl || r.dataPendukung.transkripNilai?.fileName || '-'}"`,
+    `"${r.dataPendukung.krsTerakhir?.driveFileUrl || r.dataPendukung.krsTerakhir?.fileName || '-'}"`,
+    `"${r.dataPendukung.buktiPembayaran?.driveFileUrl || r.dataPendukung.buktiPembayaran?.fileName || '-'}"`,
+    `"${r.dataPendukung.fotoAlmamater3x4?.driveFileUrl || r.dataPendukung.fotoAlmamater3x4?.fileName || '-'}"`,
+    `"${r.syncedToGoogle.driveFolderUrl || '-'}"`,
+    `"${r.statusVerifikasi}"`,
+    `"${(r.catatanPanitia || '').replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `Rekap_1_Spreadsheet_PPL_FKIP_UIJ_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}

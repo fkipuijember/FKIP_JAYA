@@ -1,0 +1,6 @@
+{
+  "name": "Pendaftaran PPL FKIP UIJ",
+  "description": "Aplikasi pendaftaran PPL FKIP Universitas Islam Jember tanpa login dengan integrasi otomatis ke Google Drive dan Spreadsheet.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
